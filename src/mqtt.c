@@ -14,6 +14,9 @@
 #define INPUT_THREAD_DELAY 1000 // ms
 #define OUTPUT_THREAD_DELAY 2000 // ms
 
+#define TOPIC_NODE0_INFO "node0/info"
+#define WILL_MESSAGE "{\"ip_addr\":\"\"}"
+
 /* The mqtt client struct */
 static struct mqtt_client mqtt_client;
 
@@ -73,7 +76,7 @@ static void announce_node(void)
 		printk("mqtt: produce json failed\n");
 		return;
 	}
-	mqtt_publish_topic("node0/info", jsonbuf, true);
+	mqtt_publish_topic(TOPIC_NODE0_INFO, jsonbuf, true);
 }
 
 static void event_handler(struct mqtt_client *const client,
@@ -101,6 +104,17 @@ static void configure_client(struct mqtt_client *client)
         static u8_t rx_buffer[MQTT_BUFFER_SIZE];
         static u8_t tx_buffer[MQTT_BUFFER_SIZE];
         static struct sockaddr_storage mqtt_broker;
+	static struct mqtt_topic will_topic = {
+		.topic = {
+			.utf8 = TOPIC_NODE0_INFO,
+			.size = sizeof TOPIC_NODE0_INFO
+		},
+		.qos = MQTT_QOS_1_AT_LEAST_ONCE
+	};
+	static struct mqtt_utf8 will_message = {
+		.utf8 = WILL_MESSAGE,
+		.size = sizeof WILL_MESSAGE
+	};
 
         /* set broker address */
 	struct sockaddr_in6 *broker6 = (struct sockaddr_in6 *)&mqtt_broker;
@@ -119,6 +133,9 @@ static void configure_client(struct mqtt_client *client)
 	client->password = NULL;
 	client->user_name = NULL;
 	client->protocol_version = MQTT_VERSION_3_1_1;
+	client->will_topic = &will_topic;
+	client->will_message = &will_message;
+	client->will_retain = false;
 
 	/* MQTT buffers configuration */
 	client->rx_buf = rx_buffer;
