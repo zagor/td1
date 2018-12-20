@@ -11,12 +11,70 @@
 #define STACKSIZE 1024
 #define CONNECT_TIMEOUT 5000 // ms
 #define MQTT_PING_TIME  30000 // ms
-#define OUTPUT_THREAD_DELAY 1000 // ms
+#define INPUT_THREAD_DELAY 1000 // ms
+#define OUTPUT_THREAD_DELAY 2000 // ms
 
 /* The mqtt client struct */
 static struct mqtt_client mqtt_client;
 
 static bool connected = false;
+
+static char node_ip_address[NET_IPV6_ADDR_LEN];
+static char node_version[16];
+
+struct node {
+	char *ip_addr;
+	char *version;
+} node_data = {
+	.ip_addr = node_ip_address,
+	.version = node_version
+};
+
+static const struct json_obj_descr node_descr[] = {
+	JSON_OBJ_DESCR_PRIM(struct node, ip_addr, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM(struct node, version, JSON_TOK_STRING),
+};
+
+void mqtt_publish_topic(char *topic, char *payload, bool retain)
+{
+	struct mqtt_publish_param param;
+        const enum mqtt_qos qos = MQTT_QOS_0_AT_MOST_ONCE;
+
+	param.message.topic.qos = qos;
+	param.message.topic.topic.utf8 = topic;
+	param.message.topic.topic.size = strlen(topic);
+	param.message.payload.data = payload;
+	param.message.payload.len = strlen(payload);
+	param.message_id = sys_rand32_get();
+	param.dup_flag = 0;
+	param.retain_flag = retain ? 1 : 0;
+
+	int rc = mqtt_publish(&mqtt_client, &param);
+        if (rc < 0)
+                printk("mqtt_publish %d\n", rc);
+	printk("out: mqtt: %s: %s\n", topic, payload);
+}
+
+static void announce_node(void)
+{
+        char jsonbuf[80];
+	struct net_if *iface = net_if_get_default();
+
+        net_addr_ntop(AF_INET6,
+                      &iface->config.ip.ipv6->unicast[1].address.in6_addr,
+                      node_data.ip_addr, sizeof node_data.ip_addr);
+        printk("Node IP address: %s\n", node_data.ip_addr);
+
+	strcpy(node_data.version, "0.1");
+
+	int ret = json_obj_encode_buf(node_descr, ARRAY_SIZE(node_descr),
+				      &node_data, jsonbuf, sizeof jsonbuf);
+	if (ret < 0) {
+		printk("mqtt: produce json failed\n");
+		return;
+	}
+	mqtt_publish_topic("node0/info", jsonbuf, true);
+}
 
 static void event_handler(struct mqtt_client *const client,
                           const struct mqtt_evt *event)
@@ -25,6 +83,7 @@ static void event_handler(struct mqtt_client *const client,
                 case MQTT_EVT_CONNACK:
                         printk("MQTT connected\n");
                         connected = true;
+			announce_node();
                         break;
 
                 case MQTT_EVT_DISCONNECT:
@@ -156,25 +215,6 @@ static void input_loop(void)
         }
 }
 
-void mqtt_publish_topic(char *topic, char *payload)
-{
-	struct mqtt_publish_param param;
-        const enum mqtt_qos qos = MQTT_QOS_0_AT_MOST_ONCE;
-
-	param.message.topic.qos = qos;
-	param.message.topic.topic.utf8 = topic;
-	param.message.topic.topic.size = strlen(topic);
-	param.message.payload.data = payload;
-	param.message.payload.len = strlen(payload);
-	param.message_id = sys_rand32_get();
-	param.dup_flag = 0;
-	param.retain_flag = 1;
-
-	int rc = mqtt_publish(&mqtt_client, &param);
-        if (rc < 0)
-                printk("mqtt_publish %d\n", rc);
-}
-
 static struct pump last_pump_data;
 
 static void output_loop(void)
@@ -188,13 +228,13 @@ static void output_loop(void)
                 if (last_pump_data.activated != pump_data->activated) {
                         char buf[8];
                         snprintf(buf, sizeof buf, "%d", pump_data->activated);
-                        mqtt_publish_topic("node0/pump/activated", buf);
+                        mqtt_publish_topic("node0/pump/activated", buf, true);
                 }
 
                 if (last_pump_data.set_speed != pump_data->set_speed) {
                         char buf[8];
                         snprintf(buf, sizeof buf, "%d", pump_data->set_speed);
-                        mqtt_publish_topic("node0/pump/set_speed", buf);
+                        mqtt_publish_topic("node0/pump/set_speed", buf, true);
                 }
         }
 }
@@ -210,9 +250,9 @@ void mqtt_start(void)
 {
         k_thread_create(&input_thread, input_stack, sizeof input_stack,
                         (k_thread_entry_t)input_loop,
-                        NULL, NULL, NULL, -1, K_USER, K_NO_WAIT);
+                        NULL, NULL, NULL, -1, K_USER, INPUT_THREAD_DELAY);
 
-        k_thread_create(&output_thread, output_stack, sizeof output_stack,
+	k_thread_create(&output_thread, output_stack, sizeof output_stack,
                         (k_thread_entry_t)output_loop,
                         NULL, NULL, NULL, -1, K_USER, OUTPUT_THREAD_DELAY);
 }

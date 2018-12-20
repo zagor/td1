@@ -5,27 +5,44 @@ import requests
 import os
 
 broker="digi"
-pump="pump"
+pump_ip=""
+mqtt = paho.Client("client-001")
 
 def on_message(client, userdata, message):
-    print(message.topic.decode("utf-8") + ": " + message.payload.decode("utf-8"))
+    global pump_ip
+    topic = message.topic.decode("utf-8")
+    payload = message.payload.decode("utf-8")
+
+    print(topic + ": " + payload)
+
+    if topic == "node0/info":
+        data = json.loads(payload)
+        pump_ip = data["ip_addr"]
+        print "node0 address is " + pump_ip
 
 def mqtt_init():
-    client= paho.Client("client-001")
-    client.on_message = on_message
+    mqtt.on_message = on_message
     print("connecting")
-    client.connect(broker)
-    client.loop_start()
+    mqtt.connect(broker)
+    mqtt.loop_start()
     print("subscribing")
-    client.subscribe("node0/#")
+    mqtt.subscribe("node0/#")
 
 
 def pump_start(pump_on = True):
-    url = "http://" + pump + "/v1/pumps/0"
+    if pump_ip == "":
+        print "No pump in system"
+        return
+    url = "http://[" + pump_ip + "]/v1/pumps/0"
     print("Calling " + url)
-    response = requests.put(url,
-                            json = { "activated": pump_on,
-                                     "set_speed": 100 })
+    try:
+        response = requests.put(url,
+                                json = { "activated": pump_on,
+                                         "set_speed": 100 },
+                                timeout = 2)
+    except requests.exceptions.ConnectTimeout:
+        print("HTTP request timeout")
+        return
     if response.status_code != 200:
         print "HTTP response", response.status_code
         raise ValueError
@@ -62,6 +79,6 @@ try:
 
 except:
     print("exiting... ")
-    client.disconnect()
-    client.loop_stop()
+    mqtt.disconnect()
+    mqtt.loop_stop()
     raise
