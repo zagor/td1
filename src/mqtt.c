@@ -52,7 +52,7 @@ void mqtt_publish_topic(char *topic, char *payload, bool retain)
 	int rc = mqtt_publish(&mqtt_client, &param);
         if (rc < 0)
                 printk("mqtt_publish %d\n", rc);
-	printk("out: mqtt: %s: %s\n", topic, payload);
+	printk("mqtt out: %s: %s\n", topic, payload);
 }
 
 static void announce_node(void)

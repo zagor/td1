@@ -93,7 +93,7 @@ static enum http_verdict url_handler(struct http_ctx *ctx,
 	memcpy(url, ctx->http.url, url_len);
 	url[url_len] = 0;
 
-	printk("in : http %s %s\n", http_method_str(ctx->http.parser.method), url);
+	printk("http in : %s %s\n", http_method_str(ctx->http.parser.method), url);
 #endif
 
 	if (!strncmp(ctx->http.url, "/v1/pumps/0", ctx->http.url_len)) {
