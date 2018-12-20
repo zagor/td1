@@ -2,7 +2,7 @@
 #include <json.h>
 #include "pump.h"
 
-static u8_t request_buffer[256];
+static u8_t request_buffer[512];
 
 static struct http_ctx http_ctx;
 static struct http_server_urls http_urls;
@@ -60,11 +60,15 @@ static void pump_request(struct http_ctx *ctx,
 	char* body = strstr(ctx->http.url, "\r\n\r\n");
 	int ret;
 
-	if (method == HTTP_PUT && body) {
-		if (pump_consume_json(body, strlen(body)) < 0) {
-			respond_error(ctx, dst, "consume json failed");
-			return;
+	if (method == HTTP_PUT) {
+		if (body) {
+			if (pump_consume_json(body, strlen(body)) < 0) {
+				respond_error(ctx, dst, "consume json failed");
+				return;
+			}
 		}
+		else
+			printk("PUT without body!\n%s\n", ctx->http.url);
 	}
 
 	char outbuf[128];
@@ -89,7 +93,7 @@ static enum http_verdict url_handler(struct http_ctx *ctx,
 	memcpy(url, ctx->http.url, url_len);
 	url[url_len] = 0;
 
-	printk("%s %s\n", http_method_str(ctx->http.parser.method), url);
+	printk("in : http %s %s\n", http_method_str(ctx->http.parser.method), url);
 #endif
 
 	if (!strncmp(ctx->http.url, "/v1/pumps/0", ctx->http.url_len)) {
