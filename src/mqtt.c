@@ -61,12 +61,6 @@ void mqtt_publish_topic(char *topic, char *payload, bool retain)
 static void announce_node(void)
 {
         char jsonbuf[80];
-	struct net_if *iface = net_if_get_default();
-
-        net_addr_ntop(AF_INET6,
-                      &iface->config.ip.ipv6->unicast[1].address.in6_addr,
-                      node_data.ip_addr, sizeof node_data.ip_addr);
-        printk("Node IP address: %s\n", node_data.ip_addr);
 
 	strcpy(node_data.version, "0.1");
 
@@ -99,6 +93,28 @@ static void event_handler(struct mqtt_client *const client,
         }
 }
 
+static void wait_for_ip_address(void)
+{
+	struct net_if *iface = net_if_get_default();
+
+	while (true) {
+		for (int i=0; i<NET_IF_MAX_IPV6_ADDR; i++) {
+			struct in6_addr *addr = &iface->config.ip.ipv6->
+				unicast[i].address.in6_addr;
+			if (!net_ipv6_is_ll_addr(addr) &&
+			    !net_ipv6_is_addr_unspecified(addr)) {
+				net_addr_ntop(AF_INET6, addr,
+					      node_data.ip_addr,
+					      sizeof node_data.ip_addr);
+				printk("Node IP address: %s\n",
+				       node_data.ip_addr);
+				return;
+			}
+		}
+		printk("No IP address\n");
+		k_sleep(2000);
+	}
+}
 static void configure_client(struct mqtt_client *client)
 {
         static u8_t rx_buffer[MQTT_BUFFER_SIZE];
@@ -115,6 +131,8 @@ static void configure_client(struct mqtt_client *client)
 		.utf8 = WILL_MESSAGE,
 		.size = sizeof WILL_MESSAGE
 	};
+
+	wait_for_ip_address();
 
         /* set broker address */
 	struct sockaddr_in6 *broker6 = (struct sockaddr_in6 *)&mqtt_broker;
