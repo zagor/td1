@@ -237,10 +237,9 @@ static struct pump last_pump_data;
 static void output_loop(void)
 {
         struct pump *pump_data = pump_data_get();
-        while (1) {
-                last_pump_data = *pump_data;
-                pump_data_wait();
+	memset(&last_pump_data, 0xff, sizeof last_pump_data);
 
+        while (1) {
                 /* todo: make generic */
                 if (last_pump_data.activated != pump_data->activated) {
                         char buf[8];
@@ -253,6 +252,8 @@ static void output_loop(void)
                         snprintf(buf, sizeof buf, "%d", pump_data->set_speed);
                         mqtt_publish_topic("node0/pump/set_speed", buf, true);
                 }
+                last_pump_data = *pump_data;
+                pump_data_wait();
         }
 }
 
