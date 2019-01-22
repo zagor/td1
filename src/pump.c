@@ -63,5 +63,7 @@ int pump_init(void)
 	}
 
 	gpio_pin_configure(gpioe, 9, GPIO_DIR_OUT);
+	gpio_pin_configure(gpioe, 11, GPIO_DIR_OUT);
+	gpio_pin_write(gpioe, 11, true);
 	return 0;
 }
