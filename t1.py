@@ -1,10 +1,20 @@
+#!/usr/bin/env python
 import time
 import paho.mqtt.client as paho
 import json
 import requests
 import os
 
-broker="digi"
+user_button_gpio = 67
+low_level_gpio = 68
+high_level_gpio = 74
+led_gpio = 75
+
+user_button_pressed = 0
+above_low_level = 0
+above_high_level = 0
+
+mqtt_broker="digi"
 pump_ip=""
 mqtt = paho.Client("client-001")
 pump_running = False
@@ -23,20 +33,25 @@ def on_message(client, userdata, message):
         global pump_running
         pump_running = (payload == "1")
 
-
 def mqtt_init():
     mqtt.on_message = on_message
     print("connecting")
-    mqtt.connect(broker)
+    mqtt.connect(mqtt_broker)
     mqtt.loop_start()
     print("subscribing")
     mqtt.subscribe("node0/#")
 
+def led(on=True):
+    if not os.access('/sys/class/gpio/', os.W_OK):
+        return
+    with open('/sys/class/gpio/gpio'+str(led_gpio)+'/value', 'w') as file:
+        file.write("%d" % on*1)
 
 def pump_start(pump_on = True):
     if pump_ip == "":
         print "No pump in system"
         return
+    led(pump_on)
     url = "http://[" + pump_ip + "]/v1/pumps/0"
     print("http out: " + url)
     try:
@@ -47,55 +62,56 @@ def pump_start(pump_on = True):
     except requests.exceptions.ConnectTimeout:
         print("HTTP request timeout")
         return
+    except requests.exceptions.ConnectionError:
+        print("HTTP request error")
+        return
     if response.status_code != 200:
         print "HTTP response", response.status_code
         raise ValueError
 
-def led_init():
+def gpio_init():
     if not os.access('/sys/class/gpio/', os.W_OK):
         return
-    if not os.path.isdir("/sys/class/gpio/gpio75"):
-        with open('/sys/class/gpio/export', 'w') as file:
-            file.write("75")
-    with open('/sys/class/gpio/gpio75/direction', 'w') as file:
-            file.write("out")
+    for num in [led_gpio, user_button_gpio, low_level_gpio, high_level_gpio]:
+        if not os.path.isdir("/sys/class/gpio/gpio"+str(num)):
+            with open('/sys/class/gpio/export', 'w') as file:
+                file.write(str(num))
+        with open('/sys/class/gpio/gpio'+str(num)+'/direction', 'w') as file:
+            if num == led_gpio:
+                file.write("out")
+            else:
+                file.write("in")
 
-def led(on=True):
-    if not os.access('/sys/class/gpio/', os.W_OK):
-        return
-    with open('/sys/class/gpio/gpio75/value', 'w') as file:
-        file.write("%d" % on*1)
+def gpio_read():
+    global user_button_pressed, above_low_level, above_high_level
 
-def button_init():
-    if not os.access('/sys/class/gpio/', os.W_OK):
-        return
-    if not os.path.isdir("/sys/class/gpio/gpio67"):
-        with open('/sys/class/gpio/export', 'w') as file:
-            file.write("67")
-    with open('/sys/class/gpio/gpio67/direction', 'w') as file:
-            file.write("in")
-
-def button_read():
-    with open('/sys/class/gpio/gpio67/value', 'r') as file:
-        val = file.read(1)
-    return val == "0"
+    for num in [user_button_gpio, low_level_gpio, high_level_gpio]:
+        with open('/sys/class/gpio/gpio'+str(num)+'/value', 'r') as file:
+            val = int(file.read(1))
+        if num == user_button_gpio:
+            user_button_pressed = 1 - val
+        elif num == low_level_gpio:
+            above_low_level = val
+        elif num == high_level_gpio:
+            above_high_level = val
 
 #### main ###
 
-led_init()
-button_init()
+gpio_init()
 mqtt_init()
 
 try:
     while True:
-        if button_read():
+        gpio_read()
+        #print "button %d, low %d, high %d" % (user_button_pressed, above_low_level, above_high_level)
+
+        if above_high_level or user_button_pressed:
             if not pump_running:
-                led(True)
                 pump_start(True)
-        elif pump_running:
-            led(False)
-            pump_start(False)
-        time.sleep(0.5)
+        elif not above_low_level:
+            if pump_running:
+                pump_start(False)
+        time.sleep(0.1)
 
 except:
     print("exiting... ")
